@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import Lenis from "lenis";
-// TODO: WHEN I SCROLL IN THE PRODUCTS I WANT THE CENTER TO EXPAND THEN WHEN ITS NOT HIGHLIGHTED I WANT THE SIDE TO GO BACK
+
 /* ---------------------------------------------------------------
    Kaycie Aesthetic Center: black & white, 3D scroll landing page
    Needs in /public:
@@ -9,16 +9,16 @@ import Lenis from "lenis";
 ---------------------------------------------------------------- */
 
 /* ---------- Data ---------- */
-interface Treatment { name: string; desc: string, img:string }
+interface Treatment { name: string; desc: string; img: string }
 interface Product { name: string; desc: string; price: string; img: string }
 
 const treatments: Treatment[] = [
-  { name: "Facial Treatments", desc: "Deep cleansing, hydrating and brightening facials chosen for your skin.", img:"/model2.png" },
-  { name: "Beauty Enhancing Services", desc: "Refined, non-surgical touches that bring out your natural features.", img:"/model2.png" },
-  { name: "Weight-loss Procedures", desc: "Guided programs, supervised by our clinic team, for steady progress." , img:"/model2.png"},
-  { name: "Botox", desc: "Precisely placed treatment that softens lines while keeping expression natural.", img:"/model2.png" },
-  { name: "Gluta", desc: "Glutathione programs for skin that looks brighter and more even.", img:"/model2.png" },
-  { name: "Other Aesthetic Procedures", desc: "Ask about treatments for pigmentation, scars and other skin concerns.", img:"/model2.png" },
+  { name: "Facial Treatments", desc: "Deep cleansing, hydrating and brightening facials chosen for your skin.", img: "treatment.png" },
+  { name: "Beauty Enhancing Services", desc: "Refined, non-surgical touches that bring out your natural features.", img: "treatment.png" },
+  { name: "Weight-loss Procedures", desc: "Guided programs, supervised by our clinic team, for steady progress.", img: "treatment.png" },
+  { name: "Botox", desc: "Precisely placed treatment that softens lines while keeping expression natural.", img: "treatment.png" },
+  { name: "Gluta", desc: "Glutathione programs for skin that looks brighter and more even.", img: "treatment.png" },
+  { name: "Other Aesthetic Procedures", desc: "Ask about treatments for pigmentation, scars and other skin concerns.", img: "treatment.png" },
 ];
 
 const products: Product[] = [
@@ -168,6 +168,8 @@ const KaycieLandingPage: React.FC = () => {
   const ringWrap = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
   const progressRef = useRef<HTMLDivElement>(null);
+  const markRef = useRef<HTMLDivElement>(null);
+  const floorRef = useRef<HTMLDivElement>(null);
 
   /* Smooth scrolling */
   useEffect(() => {
@@ -215,11 +217,11 @@ const KaycieLandingPage: React.FC = () => {
     if (hintRef.current) hintRef.current.style.opacity = String(clamp(1 - p * 5, 0, 1));
   });
 
-  /* 3D product ring driven by scroll */
+  /* 3D product ring driven by scroll: the front card grows, the others fall back */
   useSceneProgress(ringSection, (p) => {
     const n = products.length;
     const w = window.innerWidth;
-    const R = w < 640 ? 230 : w < 1024 ? 340 : 470;
+    const R = w < 640 ? 220 : w < 1024 ? 330 : 450;
     const step = 360 / n;
     const rot = -p * (n - 1) * step;
 
@@ -229,12 +231,55 @@ const KaycieLandingPage: React.FC = () => {
       const a = i * step + rot;
       const norm = ((((a % 360) + 360) % 360) + 180) % 360 - 180;
       const f = Math.max(0, Math.cos((norm * Math.PI) / 180));
-      el.style.transform = `translate(-50%,-50%) rotateY(${a}deg) translateZ(${R}px)`;
-      el.style.opacity = String(0.2 + 0.8 * f);
+      const g = ease(clamp((f - 0.8) / 0.2, 0, 1)); // 0 on the sides, 1 at the front
+      el.style.transform = `translate(-50%,-50%) rotateY(${a}deg) translateZ(${R + g * 70}px) scale(${0.8 + 0.37 * g})`;
+      el.style.opacity = String(0.3 + 0.7 * f);
+      el.style.filter = `brightness(${0.5 + 0.5 * g})`;
+      el.style.boxShadow = `0 ${30 + g * 30}px ${80 + g * 60}px -30px rgba(255,255,255,${0.1 + 0.4 * g})`;
     });
+    if (markRef.current) markRef.current.style.transform = `translate(-50%,-50%) translateZ(-500px) rotateY(${-30 + p * 60}deg)`;
+    if (floorRef.current) floorRef.current.style.transform = `translateX(-50%) translateY(-50%) rotateX(74deg) rotateZ(${p * 140}deg)`;
     if (progressRef.current) progressRef.current.style.transform = `scaleX(${p})`;
     setActive(Math.round(p * (n - 1)));
   });
+
+  /* Treatments: stacked cards with scroll-driven reveal */
+  const tCards = useRef<(HTMLDivElement | null)[]>([]);
+  const tMasks = useRef<(HTMLDivElement | null)[]>([]);
+  const tPics = useRef<(HTMLImageElement | null)[]>([]);
+  const tTexts = useRef<(HTMLDivElement | null)[]>([]);
+
+  useEffect(() => {
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const run = () => {
+      const vh = window.innerHeight;
+      tCards.current.forEach((card, i) => {
+        if (!card) return;
+        const next = tCards.current[i + 1];
+        const q = !reduce && next ? clamp((vh - next.getBoundingClientRect().top) / (vh - 90), 0, 1) : 0;
+        const r = reduce ? 1 : ease(clamp((vh * 0.95 - card.getBoundingClientRect().top) / (vh * 0.55), 0, 1));
+
+        card.style.transform = `perspective(1400px) rotateX(${q * 3}deg) scale(${1 - q * 0.06})`;
+        card.style.filter = `brightness(${1 - q * 0.45})`;
+        const mask = tMasks.current[i];
+        if (mask) mask.style.clipPath = `inset(${(1 - r) * 100}% 0 0 0)`;
+        const pic = tPics.current[i];
+        if (pic) pic.style.transform = `scale(${1.3 - 0.22 * r + 0.08 * q})`;
+        const txt = tTexts.current[i];
+        if (txt) {
+          txt.style.opacity = String(r);
+          txt.style.transform = `translateY(${(1 - r) * 40}px)`;
+        }
+      });
+    };
+    run();
+    window.addEventListener("scroll", run, { passive: true });
+    window.addEventListener("resize", run);
+    return () => {
+      window.removeEventListener("scroll", run);
+      window.removeEventListener("resize", run);
+    };
+  }, []);
 
   const go = (e: React.MouseEvent | null, hash: string) => {
     e?.preventDefault();
@@ -379,53 +424,115 @@ const KaycieLandingPage: React.FC = () => {
 
       {/* Treatments */}
       <section id="treatments" className={`${pad} py-24 lg:py-36`}>
-        <div className="grid gap-14 lg:grid-cols-[0.8fr_1.5fr] lg:gap-24">
-          <div className="lg:sticky lg:top-32 lg:self-start">
-            <Reveal>
-              <h2 className={`${display} mb-6 text-5xl font-light tracking-tight sm:text-6xl lg:text-7xl`}>Treatments</h2>
-              <p className="mb-10 max-w-sm text-[#5d5a55]">
-                Every plan starts with a consultation, so your treatment fits your skin, your goals and your pace.
-              </p>
-              <button onClick={() => goBook()} className={btnDark}>Book a consultation</button>
-            </Reveal>
+        <Reveal className="grid gap-8 lg:grid-cols-[1fr_auto] lg:items-end">
+          <div>
+            <h2 className={`${display} mb-5 text-5xl font-light tracking-tight sm:text-6xl lg:text-7xl`}>Treatments</h2>
+            <p className="max-w-md text-[#5d5a55]">
+              Every plan starts with a consultation, so your treatment fits your skin, your goals and your pace.
+            </p>
           </div>
+          <button onClick={() => goBook()} className={`${btnDark} w-fit`}>Book a consultation</button>
+        </Reveal>
 
-          <div className="border-t border-black/15">
-            {treatments.map((t, i) => (
-              <Reveal className="flex" key={t.name} delay={i * 50}>
-                <img src={t.img}/>
-                <div className="group flex flex-col gap-4 border-b border-black/15 py-9 md:flex-row md:items-center md:justify-between md:gap-10">
-                  <div>
-                    <h3 className={`${display} text-3xl font-light transition-transform duration-500 group-hover:translate-x-3 sm:text-4xl lg:text-5xl`}>
-                      {t.name}
-                    </h3>
-                    <p className="mt-2 max-w-md text-[#5d5a55]">{t.desc}</p>
-                  </div>
-                  <button
-                    onClick={() => goBook(t.name)}
-                    className="w-fit shrink-0 text-[12px] font-medium uppercase tracking-[0.2em] underline decoration-black/30 underline-offset-8 transition hover:decoration-black"
-                  >
-                    Inquire
-                  </button>
+        <div className="relative mt-16">
+          {treatments.map((t, i) => {
+            const dark = i % 2 === 1;
+            return (
+              <div
+                key={t.name}
+                ref={(el) => {
+                  tCards.current[i] = el;
+                }}
+                style={{ top: 88 + i * 14 }}
+                className={`sticky mb-[14vh] flex h-[74vh] min-h-[480px] origin-top flex-col overflow-hidden shadow-[0_30px_80px_-30px_rgba(0,0,0,.35)] ring-1 ring-black/10 last:mb-0 md:flex-row ${
+                  i % 2 ? "md:flex-row-reverse" : ""
+                } ${dark ? "bg-[#0a0a0a] text-white" : "bg-white text-[#0a0a0a]"}`}
+              >
+                <div
+                  ref={(el) => {
+                    tMasks.current[i] = el;
+                  }}
+                  className="relative h-[42%] w-full overflow-hidden md:h-full md:w-1/2"
+                >
+                  <img
+                    ref={(el) => {
+                      tPics.current[i] = el;
+                    }}
+                    src={t.img}
+                    alt={t.name}
+                    loading="lazy"
+                    className="h-full w-full object-cover"
+                  />
                 </div>
-              </Reveal>
-            ))}
-          </div>
+                <div
+                  ref={(el) => {
+                    tTexts.current[i] = el;
+                  }}
+                  className="flex flex-1 flex-col justify-center gap-5 p-8 md:w-1/2 md:gap-7 md:p-16"
+                >
+                  <h3 className={`${display} text-4xl font-light leading-[1.05] sm:text-5xl lg:text-6xl`}>{t.name}</h3>
+                  <p className={`max-w-md ${dark ? "text-white/65" : "text-[#5d5a55]"}`}>{t.desc}</p>
+                  <div>
+                    <button onClick={() => goBook(t.name)} className={dark ? btnLight : btnDark}>
+                      Inquire
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
         </div>
       </section>
 
       {/* Products: 3D ring */}
-      <section ref={ringSection} id="products" className="relative h-[520vh] w-full bg-[#0a0a0a] text-white">
-        <div className="sticky top-0 flex h-screen w-full flex-col overflow-hidden">
-          <div className={`${pad} flex shrink-0 items-end justify-between gap-6 pt-24`}>
-            <h2 className={`${display} text-4xl font-light tracking-tight sm:text-6xl`}>Signature products</h2>
+      <section ref={ringSection} id="products" className="relative h-[520vh] w-full bg-[#050505] text-white">
+        <div
+          className="sticky top-0 flex h-screen w-full flex-col overflow-hidden"
+          style={{
+            background:
+              "radial-gradient(60% 50% at 50% 36%, rgba(255,255,255,.14), transparent 70%), radial-gradient(45% 45% at 12% 90%, rgba(255,255,255,.07), transparent 70%), radial-gradient(45% 45% at 90% 15%, rgba(255,255,255,.07), transparent 70%), linear-gradient(180deg,#050505,#121212 55%,#050505)",
+          }}
+        >
+          {/* light beam + side lines */}
+          <div className="pointer-events-none absolute left-1/2 top-0 h-[85%] w-[80vw] max-w-[1100px] -translate-x-1/2 bg-gradient-to-b from-white/[0.16] via-white/[0.04] to-transparent [clip-path:polygon(38%_0,62%_0,100%_100%,0_100%)]" />
+          <div className="pointer-events-none absolute left-[7%] top-0 h-full w-px bg-gradient-to-b from-transparent via-white/20 to-transparent" />
+          <div className="pointer-events-none absolute right-[7%] top-0 h-full w-px bg-gradient-to-b from-transparent via-white/20 to-transparent" />
+
+          <div className={`${pad} relative z-10 flex shrink-0 items-end justify-between gap-6 pt-24`}>
+            <h2 className={`${display} bg-gradient-to-b from-white to-white/55 bg-clip-text text-4xl font-light tracking-tight text-transparent sm:text-6xl`}>
+              Signature products
+            </h2>
             <p className="hidden max-w-xs text-sm text-white/60 md:block">
               The skin care we trust in our clinic, available in store. Keep scrolling to turn the collection.
             </p>
           </div>
 
           {/* stage */}
-          <div className="relative min-h-0 flex-1 [perspective:1600px]">
+          <div className="relative z-10 min-h-0 flex-1 [perspective:1600px]">
+            {/* rotating floor rings */}
+            <div
+              ref={floorRef}
+              className="pointer-events-none absolute left-1/2 top-[76%] aspect-square w-[min(92vw,960px)]"
+              style={{ transform: "translateX(-50%) translateY(-50%) rotateX(74deg)" }}
+              aria-hidden="true"
+            >
+              <div className="absolute inset-0 rounded-full bg-[radial-gradient(closest-side,rgba(255,255,255,0.22),transparent)]" />
+              <div className="absolute inset-0 rounded-full border border-white/30" />
+              <div className="absolute inset-[9%] rounded-full border border-dashed border-white/25" />
+              <div className="absolute inset-[20%] rounded-full border border-white/20" />
+              <div className="absolute inset-[34%] rounded-full border border-dashed border-white/15" />
+            </div>
+
+            {/* faint monogram in the depth */}
+            <div
+              ref={markRef}
+              className="pointer-events-none absolute left-1/2 top-1/2"
+              style={{ transform: "translate(-50%,-50%) translateZ(-500px)" }}
+              aria-hidden="true"
+            >
+              <img src="/kaycie-logo-white.png" alt="" className="h-[85vh] w-auto max-w-none opacity-[0.07]" />
+            </div>
+
             <div ref={ringWrap} className="absolute left-1/2 top-1/2 h-0 w-0 [transform-style:preserve-3d]">
               {products.map((p, i) => (
                 <div
@@ -433,7 +540,7 @@ const KaycieLandingPage: React.FC = () => {
                   ref={(el) => {
                     cardRefs.current[i] = el;
                   }}
-                  className="absolute left-0 top-0 w-[165px] bg-white text-[#0a0a0a] shadow-[0_30px_80px_-30px_rgba(255,255,255,.25)] [-webkit-backface-visibility:hidden] [backface-visibility:hidden] sm:w-[220px] lg:w-[250px]"
+                  className="absolute left-0 top-0 w-[150px] bg-white text-[#0a0a0a] ring-1 ring-white/50 [-webkit-backface-visibility:hidden] [backface-visibility:hidden] sm:w-[200px] lg:w-[230px]"
                 >
                   <div
                     className="relative aspect-[4/5] w-full bg-[#f1efeb] bg-[length:55%] bg-center bg-no-repeat"
@@ -445,11 +552,11 @@ const KaycieLandingPage: React.FC = () => {
                       alt={p.name}
                       loading="lazy"
                       onError={(e) => (e.currentTarget.style.display = "none")}
-                      className="absolute inset-0 h-full w-full object-contain p-5"
+                      className="absolute inset-0 h-full w-full object-contain p-4"
                     />
                   </div>
                   <div className="px-4 py-3">
-                    <p className={`${display} text-lg leading-tight sm:text-xl`}>{p.name}</p>
+                    <p className={`${display} text-base leading-tight sm:text-lg lg:text-xl`}>{p.name}</p>
                   </div>
                 </div>
               ))}
@@ -457,7 +564,7 @@ const KaycieLandingPage: React.FC = () => {
           </div>
 
           {/* active product details */}
-          <div className={`${pad} shrink-0`}>
+          <div className={`${pad} relative z-10 shrink-0`}>
             <div className="mb-5 flex items-center gap-4 text-[11px] uppercase tracking-[0.25em] text-white/50">
               <span>{active + 1} / {products.length}</span>
               <div className="h-px w-40 bg-white/20">
