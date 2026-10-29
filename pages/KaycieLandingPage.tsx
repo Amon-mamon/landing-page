@@ -13,12 +13,12 @@ interface Treatment { name: string; desc: string; img: string }
 interface Product { name: string; desc: string; price: string; img: string }
 
 const treatments: Treatment[] = [
-  { name: "Facial Treatments", desc: "Deep cleansing, hydrating and brightening facials chosen for your skin.", img: "treatment.png" },
-  { name: "Beauty Enhancing Services", desc: "Refined, non-surgical touches that bring out your natural features.", img: "treatment.png" },
-  { name: "Weight-loss Procedures", desc: "Guided programs, supervised by our clinic team, for steady progress.", img: "treatment.png" },
-  { name: "Botox", desc: "Precisely placed treatment that softens lines while keeping expression natural.", img: "treatment.png" },
-  { name: "Gluta", desc: "Glutathione programs for skin that looks brighter and more even.", img: "treatment.png" },
-  { name: "Other Aesthetic Procedures", desc: "Ask about treatments for pigmentation, scars and other skin concerns.", img: "treatment.png" },
+  { name: "Facial Treatments", desc: "Deep cleansing, hydrating and brightening facials chosen for your skin.", img: "/kaycie-treatment1.jpg" },
+  { name: "Beauty Enhancing Services", desc: "Refined, non-surgical touches that bring out your natural features.", img: "/kaycie-treatment2.jpg" },
+  { name: "Weight-loss Procedures", desc: "Guided programs, supervised by our clinic team, for steady progress.", img: "/kaycie-treatment3.jpg" },
+  { name: "Botox", desc: "Precisely placed treatment that softens lines while keeping expression natural.", img: "/kaycie-treatment4.jpg" },
+  { name: "Gluta", desc: "Glutathione programs for skin that looks brighter and more even.", img: "/kaycie-treatment5.jpg" },
+  { name: "Other Aesthetic Procedures", desc: "Ask about treatments for pigmentation, scars and other skin concerns.", img: "/kaycie-treatment6.jpg" },
 ];
 
 const products: Product[] = [
@@ -43,25 +43,64 @@ const field =
 const clamp = (n: number, a: number, b: number) => Math.min(b, Math.max(a, n));
 const ease = (t: number) => t * t * (3 - 2 * t);
 
-/* Progress (0..1) of a tall section while its sticky child is pinned */
+/* One shared frame loop. Each scroll effect reads layout first and returns a
+   write step; all reads run before any write, so the browser lays out once per frame. */
+type Frame = () => () => void;
+const frames = new Set<Frame>();
+let queued = false;
+let lastY = -1;
+
+const flush = () => {
+  queued = false;
+  const y = window.scrollY;
+  if (y === lastY) return;
+  lastY = y;
+  const writes = Array.from(frames, (f) => f());
+  writes.forEach((w) => w());
+};
+const queue = () => {
+  if (queued) return;
+  queued = true;
+  requestAnimationFrame(flush);
+};
+const onResize = () => {
+  lastY = -1;
+  queue();
+};
+function subscribeFrame(f: Frame) {
+  frames.add(f);
+  if (frames.size === 1) {
+    window.addEventListener("scroll", queue, { passive: true });
+    window.addEventListener("resize", onResize);
+  }
+  onResize();
+  return () => {
+    frames.delete(f);
+    if (frames.size === 0) {
+      window.removeEventListener("scroll", queue);
+      window.removeEventListener("resize", onResize);
+    }
+  };
+}
+
+/* Progress (0..1) of a tall section while its sticky child is pinned.
+   Sections more than a screen away are skipped after their first run. */
 function useSceneProgress(ref: React.RefObject<HTMLElement | null>, cb: (p: number) => void) {
   const cbRef = useRef(cb);
   cbRef.current = cb;
   useEffect(() => {
-    const run = () => {
+    let ran = false;
+    return subscribeFrame(() => {
       const el = ref.current;
-      if (!el) return;
+      if (!el) return () => {};
       const r = el.getBoundingClientRect();
-      const total = r.height - window.innerHeight;
-      cbRef.current(total > 0 ? clamp(-r.top / total, 0, 1) : 0);
-    };
-    run();
-    window.addEventListener("scroll", run, { passive: true });
-    window.addEventListener("resize", run);
-    return () => {
-      window.removeEventListener("scroll", run);
-      window.removeEventListener("resize", run);
-    };
+      const vh = window.innerHeight;
+      if (ran && (r.bottom < -vh || r.top > vh * 2)) return () => {};
+      ran = true;
+      const total = r.height - vh;
+      const p = total > 0 ? clamp(-r.top / total, 0, 1) : 0;
+      return () => cbRef.current(p);
+    });
   }, [ref]);
 }
 
@@ -117,22 +156,15 @@ const ScrollWords: React.FC<{ text: string; className?: string }> = ({ text, cla
     const el = ref.current;
     if (!el) return;
     const spans = Array.from(el.querySelectorAll<HTMLElement>("[data-w]"));
-    const run = () => {
+    return subscribeFrame(() => {
       const r = el.getBoundingClientRect();
       const vh = window.innerHeight;
       const p = clamp((vh * 0.85 - r.top) / (vh * 0.45 + r.height * 0.7), 0, 1);
-      spans.forEach((s, i) => {
-        const t = clamp(p * spans.length * 1.2 - i, 0, 1);
-        s.style.opacity = String(0.15 + 0.85 * t);
-      });
-    };
-    run();
-    window.addEventListener("scroll", run, { passive: true });
-    window.addEventListener("resize", run);
-    return () => {
-      window.removeEventListener("scroll", run);
-      window.removeEventListener("resize", run);
-    };
+      return () =>
+        spans.forEach((sp, i) => {
+          sp.style.opacity = String(0.15 + 0.85 * clamp(p * spans.length * 1.2 - i, 0, 1));
+        });
+    });
   }, []);
 
   return (
@@ -167,11 +199,12 @@ const KaycieLandingPage: React.FC = () => {
   const ringSection = useRef<HTMLElement>(null);
   const ringWrap = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const dimRefs = useRef<(HTMLDivElement | null)[]>([]);
   const progressRef = useRef<HTMLDivElement>(null);
   const markRef = useRef<HTMLDivElement>(null);
   const floorRef = useRef<HTMLDivElement>(null);
 
-  /* Smooth scrolling */
+  /* Smooth scrolling. Lenis calls flush() itself so effects stay in sync with its position. */
   useEffect(() => {
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     let raf = 0;
@@ -181,17 +214,19 @@ const KaycieLandingPage: React.FC = () => {
         easing: (t: number) => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
       });
       lenisRef.current = lenis;
+      lenis.on("scroll", flush);
       const loop = (time: number) => {
         lenis.raf(time);
         raf = requestAnimationFrame(loop);
       };
       raf = requestAnimationFrame(loop);
     }
-    const onScroll = () => setScrolled(window.scrollY > 40);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
+    const unsub = subscribeFrame(() => {
+      const y = window.scrollY;
+      return () => setScrolled(y > 40);
+    });
     return () => {
-      window.removeEventListener("scroll", onScroll);
+      unsub();
       cancelAnimationFrame(raf);
       lenisRef.current?.destroy();
       lenisRef.current = null;
@@ -234,8 +269,8 @@ const KaycieLandingPage: React.FC = () => {
       const g = ease(clamp((f - 0.8) / 0.2, 0, 1)); // 0 on the sides, 1 at the front
       el.style.transform = `translate(-50%,-50%) rotateY(${a}deg) translateZ(${R + g * 70}px) scale(${0.8 + 0.37 * g})`;
       el.style.opacity = String(0.3 + 0.7 * f);
-      el.style.filter = `brightness(${0.5 + 0.5 * g})`;
-      el.style.boxShadow = `0 ${30 + g * 30}px ${80 + g * 60}px -30px rgba(255,255,255,${0.1 + 0.4 * g})`;
+      const dim = dimRefs.current[i];
+      if (dim) dim.style.opacity = String(0.55 * (1 - g));
     });
     if (markRef.current) markRef.current.style.transform = `translate(-50%,-50%) translateZ(-500px) rotateY(${-30 + p * 60}deg)`;
     if (floorRef.current) floorRef.current.style.transform = `translateX(-50%) translateY(-50%) rotateX(74deg) rotateZ(${p * 140}deg)`;
@@ -243,42 +278,38 @@ const KaycieLandingPage: React.FC = () => {
     setActive(Math.round(p * (n - 1)));
   });
 
-  /* Treatments: stacked cards with scroll-driven reveal */
+  /* Treatments: stacked cards with scroll-driven reveal (transform + opacity only) */
   const tCards = useRef<(HTMLDivElement | null)[]>([]);
-  const tMasks = useRef<(HTMLDivElement | null)[]>([]);
+  const tDims = useRef<(HTMLDivElement | null)[]>([]);
   const tPics = useRef<(HTMLImageElement | null)[]>([]);
   const tTexts = useRef<(HTMLDivElement | null)[]>([]);
 
   useEffect(() => {
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    const run = () => {
+    let ran = false;
+    return subscribeFrame(() => {
       const vh = window.innerHeight;
-      tCards.current.forEach((card, i) => {
-        if (!card) return;
-        const next = tCards.current[i + 1];
-        const q = !reduce && next ? clamp((vh - next.getBoundingClientRect().top) / (vh - 90), 0, 1) : 0;
-        const r = reduce ? 1 : ease(clamp((vh * 0.95 - card.getBoundingClientRect().top) / (vh * 0.55), 0, 1));
-
-        card.style.transform = `perspective(1400px) rotateX(${q * 3}deg) scale(${1 - q * 0.06})`;
-        card.style.filter = `brightness(${1 - q * 0.45})`;
-        const mask = tMasks.current[i];
-        if (mask) mask.style.clipPath = `inset(${(1 - r) * 100}% 0 0 0)`;
-        const pic = tPics.current[i];
-        if (pic) pic.style.transform = `scale(${1.3 - 0.22 * r + 0.08 * q})`;
-        const txt = tTexts.current[i];
-        if (txt) {
-          txt.style.opacity = String(r);
-          txt.style.transform = `translateY(${(1 - r) * 40}px)`;
-        }
-      });
-    };
-    run();
-    window.addEventListener("scroll", run, { passive: true });
-    window.addEventListener("resize", run);
-    return () => {
-      window.removeEventListener("scroll", run);
-      window.removeEventListener("resize", run);
-    };
+      const tops = tCards.current.map((c) => (c ? c.getBoundingClientRect().top : 0));
+      if (ran && (tops[0] > vh * 2 || tops[tops.length - 1] < -vh)) return () => {};
+      ran = true;
+      return () => {
+        tCards.current.forEach((card, i) => {
+          if (!card) return;
+          const q = !reduce && i < tops.length - 1 ? clamp((vh - tops[i + 1]) / (vh - 90), 0, 1) : 0;
+          const r = reduce ? 1 : ease(clamp((vh * 0.95 - tops[i]) / (vh * 0.55), 0, 1));
+          card.style.transform = `perspective(1400px) rotateX(${q * 3}deg) scale(${1 - q * 0.06})`;
+          const dim = tDims.current[i];
+          if (dim) dim.style.opacity = String(q * 0.45);
+          const pic = tPics.current[i];
+          if (pic) pic.style.transform = `translate3d(0,${(1 - r) * 12}%,0) scale(${1.3 - 0.22 * r + 0.08 * q})`;
+          const txt = tTexts.current[i];
+          if (txt) {
+            txt.style.opacity = String(r);
+            txt.style.transform = `translate3d(0,${(1 - r) * 40}px,0)`;
+          }
+        });
+      };
+    });
   }, []);
 
   const go = (e: React.MouseEvent | null, hash: string) => {
@@ -326,7 +357,7 @@ const KaycieLandingPage: React.FC = () => {
       {/* Navigation */}
       <nav
         className={`fixed top-0 z-40 w-full transition duration-500 ${
-          scrolled ? "bg-[#faf9f7]/85 shadow-[0_1px_0_rgba(0,0,0,.1)] backdrop-blur-md" : "bg-transparent"
+          scrolled ? "bg-[#faf9f7]/95 shadow-[0_1px_0_rgba(0,0,0,.1)]" : "bg-transparent"
         }`}
       >
         <div className={`${pad} flex h-16 items-center justify-between`}>
@@ -369,14 +400,14 @@ const KaycieLandingPage: React.FC = () => {
       <header ref={heroRef} id="top" className="relative h-[280vh] w-full">
         <div className="sticky top-0 h-screen w-full overflow-hidden [perspective:1400px]">
           {/* depth frames */}
-          <div ref={framesRef} className="pointer-events-none absolute inset-0 flex items-center justify-center [transform-style:preserve-3d]" aria-hidden="true">
+          <div ref={framesRef} className="pointer-events-none absolute inset-0 flex items-center justify-center will-change-transform [transform-style:preserve-3d]" aria-hidden="true">
             <div className="absolute h-[78vmin] w-[54vmin] border border-black/10 [transform:translateZ(-260px)]" />
             <div className="absolute h-[70vmin] w-[48vmin] border border-black/15 [transform:translateZ(-60px)]" />
             <div className="absolute h-[62vmin] w-[42vmin] border border-black/20 [transform:translateZ(140px)]" />
           </div>
 
           {/* Act 1: the logo */}
-          <div ref={logoRef} className="absolute inset-0 flex items-center justify-center [transform-style:preserve-3d]">
+          <div ref={logoRef} className="absolute inset-0 flex items-center justify-center will-change-transform [transform-style:preserve-3d]">
             <img
               src="/kaycie-logo-black.png"
               alt="Kaycie Aesthetic Center"
@@ -388,7 +419,7 @@ const KaycieLandingPage: React.FC = () => {
           {/* Act 2: the headline */}
           <div
             ref={copyRef}
-            className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center opacity-0"
+            className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center opacity-0 will-change-transform"
           >
             <h1 className={`${display} max-w-4xl text-5xl font-light leading-[1.02] tracking-tight sm:text-6xl lg:text-8xl`}>
               Aesthetic and Beauty Clinic
@@ -444,16 +475,11 @@ const KaycieLandingPage: React.FC = () => {
                   tCards.current[i] = el;
                 }}
                 style={{ top: 88 + i * 14 }}
-                className={`sticky mb-[14vh] flex h-[74vh] min-h-[480px] origin-top flex-col overflow-hidden shadow-[0_30px_80px_-30px_rgba(0,0,0,.35)] ring-1 ring-black/10 last:mb-0 md:flex-row ${
+                className={`sticky mb-[14vh] flex h-[74vh] will-change-transform min-h-[480px] origin-top flex-col overflow-hidden shadow-[0_30px_80px_-30px_rgba(0,0,0,.35)] ring-1 ring-black/10 last:mb-0 md:flex-row ${
                   i % 2 ? "md:flex-row-reverse" : ""
                 } ${dark ? "bg-[#0a0a0a] text-white" : "bg-white text-[#0a0a0a]"}`}
               >
-                <div
-                  ref={(el) => {
-                    tMasks.current[i] = el;
-                  }}
-                  className="relative h-[42%] w-full overflow-hidden md:h-full md:w-1/2"
-                >
+                <div className="relative h-[42%] w-full overflow-hidden md:h-full md:w-1/2">
                   <img
                     ref={(el) => {
                       tPics.current[i] = el;
@@ -461,14 +487,15 @@ const KaycieLandingPage: React.FC = () => {
                     src={t.img}
                     alt={t.name}
                     loading="lazy"
-                    className="h-full w-full object-cover"
+                    decoding="async"
+                    className="h-full w-full object-cover will-change-transform"
                   />
                 </div>
                 <div
                   ref={(el) => {
                     tTexts.current[i] = el;
                   }}
-                  className="flex flex-1 flex-col justify-center gap-5 p-8 md:w-1/2 md:gap-7 md:p-16"
+                  className="flex flex-1 flex-col justify-center gap-5 p-8 will-change-transform md:w-1/2 md:gap-7 md:p-16"
                 >
                   <h3 className={`${display} text-4xl font-light leading-[1.05] sm:text-5xl lg:text-6xl`}>{t.name}</h3>
                   <p className={`max-w-md ${dark ? "text-white/65" : "text-[#5d5a55]"}`}>{t.desc}</p>
@@ -478,6 +505,12 @@ const KaycieLandingPage: React.FC = () => {
                     </button>
                   </div>
                 </div>
+                <div
+                  ref={(el) => {
+                    tDims.current[i] = el;
+                  }}
+                  className="pointer-events-none absolute inset-0 z-10 bg-black opacity-0"
+                />
               </div>
             );
           })}
@@ -512,7 +545,7 @@ const KaycieLandingPage: React.FC = () => {
             {/* rotating floor rings */}
             <div
               ref={floorRef}
-              className="pointer-events-none absolute left-1/2 top-[76%] aspect-square w-[min(92vw,960px)]"
+              className="pointer-events-none absolute left-1/2 top-[76%] aspect-square will-change-transform w-[min(92vw,960px)]"
               style={{ transform: "translateX(-50%) translateY(-50%) rotateX(74deg)" }}
               aria-hidden="true"
             >
@@ -526,7 +559,7 @@ const KaycieLandingPage: React.FC = () => {
             {/* faint monogram in the depth */}
             <div
               ref={markRef}
-              className="pointer-events-none absolute left-1/2 top-1/2"
+              className="pointer-events-none absolute left-1/2 top-1/2 will-change-transform"
               style={{ transform: "translate(-50%,-50%) translateZ(-500px)" }}
               aria-hidden="true"
             >
@@ -540,7 +573,7 @@ const KaycieLandingPage: React.FC = () => {
                   ref={(el) => {
                     cardRefs.current[i] = el;
                   }}
-                  className="absolute left-0 top-0 w-[150px] bg-white text-[#0a0a0a] ring-1 ring-white/50 [-webkit-backface-visibility:hidden] [backface-visibility:hidden] sm:w-[200px] lg:w-[230px]"
+                  className="absolute left-0 top-0 w-[150px] bg-white text-[#0a0a0a] ring-1 ring-white/50 shadow-[0_40px_100px_-30px_rgba(255,255,255,0.28)] will-change-transform [-webkit-backface-visibility:hidden] [backface-visibility:hidden] sm:w-[200px] lg:w-[230px]"
                 >
                   <div
                     className="relative aspect-[4/5] w-full bg-[#f1efeb] bg-[length:55%] bg-center bg-no-repeat"
@@ -551,6 +584,7 @@ const KaycieLandingPage: React.FC = () => {
                       src={p.img}
                       alt={p.name}
                       loading="lazy"
+                      decoding="async"
                       onError={(e) => (e.currentTarget.style.display = "none")}
                       className="absolute inset-0 h-full w-full object-contain p-4"
                     />
@@ -558,6 +592,12 @@ const KaycieLandingPage: React.FC = () => {
                   <div className="px-4 py-3">
                     <p className={`${display} text-base leading-tight sm:text-lg lg:text-xl`}>{p.name}</p>
                   </div>
+                  <div
+                    ref={(el) => {
+                      dimRefs.current[i] = el;
+                    }}
+                    className="pointer-events-none absolute inset-0 z-10 bg-black"
+                  />
                 </div>
               ))}
             </div>
