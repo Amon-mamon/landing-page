@@ -10,8 +10,8 @@ const NotFound: React.FC = () => <h1>404 - Page not found</h1>;
 const AppRoutes: React.FC = () => (
   <BrowserRouter>
     <Routes>
-      <Route path="/" element={<KaycieLandingPage/>} />
-      <Route path="/salon" element={<SalonLandingPage />} />
+      <Route path="/" element={<SalonLandingPage />} />
+      <Route path="/kaycie" element={<KaycieLandingPage/>} />
       <Route path="/co-create" element={<Cocreatelanding />} />
       <Route path="*" element={<NotFound />} />
     </Routes>
